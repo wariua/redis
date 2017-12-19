@@ -114,7 +114,7 @@ void resizeReplicationBacklog(long long newsize) {
 }
 
 void freeReplicationBacklog(void) {
-    serverAssert(listLength(server.slaves) == 0);
+    serverAssert(server.slaves.len == 0);
     zfree(server.repl_backlog);
     server.repl_backlog = NULL;
 }
@@ -170,9 +170,8 @@ void feedReplicationBacklogWithObject(robj *o) {
  * the commands received by our clients in order to create the replication
  * stream. Instead if the instance is a slave and has sub-slaves attached,
  * we use replicationFeedSlavesFromMaster() */
-void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
-    listNode *ln;
-    listIter li;
+void replicationFeedSlaves(elList *slaves, int dictid, robj **argv, int argc) {
+    elNode *node;
     int j, len;
     char llstr[LONG_STR_SIZE];
 
@@ -185,10 +184,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
-    if (server.repl_backlog == NULL && listLength(slaves) == 0) return;
+    if (server.repl_backlog == NULL && slaves->len == 0) return;
 
     /* We can't have slaves attached and no backlog. */
-    serverAssert(!(listLength(slaves) != 0 && server.repl_backlog == NULL));
+    serverAssert(!(slaves->len != 0 && server.repl_backlog == NULL));
 
     /* Send SELECT command to every slave if needed. */
     if (server.slaveseldb != dictid) {
@@ -211,9 +210,8 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         if (server.repl_backlog) feedReplicationBacklogWithObject(selectcmd);
 
         /* Send it to slaves. */
-        listRewind(slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = ln->value;
+        elForEach(slaves,node) {
+            client *slave = elNodeValue(node,el_slave,client);
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
             addReply(slave,selectcmd);
         }
@@ -251,9 +249,8 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
     }
 
     /* Write the command to every slave. */
-    listRewind(slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
+    elForEach(slaves,node) {
+        client *slave = elNodeValue(node,el_slave,client);
 
         /* Don't feed slaves that are still waiting for BGSAVE to start */
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
@@ -275,9 +272,8 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 /* This function is used in order to proxy what we receive from our master
  * to our sub-slaves. */
 #include <ctype.h>
-void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen) {
-    listNode *ln;
-    listIter li;
+void replicationFeedSlavesFromMasterStream(elList *slaves, char *buf, size_t buflen) {
+    elNode *node;
 
     /* Debugging: this is handy to see the stream sent from master
      * to slaves. Disabled with if(0). */
@@ -290,9 +286,8 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
     }
 
     if (server.repl_backlog) feedReplicationBacklog(buf,buflen);
-    listRewind(slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
+    elForEach(slaves,node) {
+        client *slave = elNodeValue(node,el_slave,client);
 
         /* Don't feed slaves that are still waiting for BGSAVE to start */
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) continue;
@@ -300,9 +295,8 @@ void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t bufle
     }
 }
 
-void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc) {
-    listNode *ln;
-    listIter li;
+void replicationFeedMonitors(client *c, elList *monitors, int dictid, robj **argv, int argc) {
+    elNode *node;
     int j;
     sds cmdrepr = sdsnew("+");
     robj *cmdobj;
@@ -331,9 +325,8 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
     cmdrepr = sdscatlen(cmdrepr,"\r\n",2);
     cmdobj = createObject(OBJ_STRING,cmdrepr);
 
-    listRewind(monitors,&li);
-    while((ln = listNext(&li))) {
-        client *monitor = ln->value;
+    elForEach(monitors,node) {
+        client *monitor = elNodeValue(node,el_slave,client);
         addReply(monitor,cmdobj);
     }
     decrRefCount(cmdobj);
@@ -509,7 +502,7 @@ int masterTryPartialResynchronization(client *c) {
     c->replstate = SLAVE_STATE_ONLINE;
     c->repl_ack_time = server.unixtime;
     c->repl_put_online_on_ack = 0;
-    listAddNodeTail(server.slaves,c);
+    elAddNodeTail(&server.slaves,&c->el_slave);
     /* We can't use the connection buffers since they are used to accumulate
      * new commands at this stage. But we are sure the socket send buffer is
      * empty so this write will never fail actually. */
@@ -563,8 +556,7 @@ need_full_resync:
 int startBgsaveForReplication(int mincapa) {
     int retval;
     int socket_target = server.repl_diskless_sync && (mincapa & SLAVE_CAPA_EOF);
-    listIter li;
-    listNode *ln;
+    elNode *node, *next;
 
     serverLog(LL_NOTICE,"Starting BGSAVE for SYNC with target: %s",
         socket_target ? "slaves sockets" : "disk");
@@ -588,13 +580,12 @@ int startBgsaveForReplication(int mincapa) {
      * an error about what happened, close the connection ASAP. */
     if (retval == C_ERR) {
         serverLog(LL_WARNING,"BGSAVE for replication failed");
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = ln->value;
+        elForEachSafe(&server.slaves,node,next) {
+            client *slave = elNodeValue(node,el_slave,client);
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
                 slave->flags &= ~CLIENT_SLAVE;
-                listDelNode(server.slaves,ln);
+                elDelNode(&server.slaves,node);
                 addReplyError(slave,
                     "BGSAVE failed, replication can't continue");
                 slave->flags |= CLIENT_CLOSE_AFTER_REPLY;
@@ -606,9 +597,8 @@ int startBgsaveForReplication(int mincapa) {
     /* If the target is socket, rdbSaveToSlavesSockets() already setup
      * the salves for a full resync. Otherwise for disk target do it now.*/
     if (!socket_target) {
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = ln->value;
+        elForEachSafe(&server.slaves,node,next) {
+            client *slave = elNodeValue(node,el_slave,client);
 
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
                     replicationSetupSlaveForFullResync(slave,
@@ -686,10 +676,10 @@ void syncCommand(client *c) {
         anetDisableTcpNoDelay(NULL, c->fd); /* Non critical if it fails. */
     c->repldbfd = -1;
     c->flags |= CLIENT_SLAVE;
-    listAddNodeTail(server.slaves,c);
+    elAddNodeTail(&server.slaves,&c->el_slave);
 
     /* Create the replication backlog if needed. */
-    if (listLength(server.slaves) == 1 && server.repl_backlog == NULL) {
+    if (server.slaves.len == 1 && server.repl_backlog == NULL) {
         /* When we create the backlog from scratch, we always use a new
          * replication ID and clear the ID2, since there is no valid
          * past history. */
@@ -706,17 +696,16 @@ void syncCommand(client *c) {
          * one for replication, i.e. if there is another slave that is
          * registering differences since the server forked to save. */
         client *slave;
-        listNode *ln;
-        listIter li;
+        elNode *node;
 
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            slave = ln->value;
+        elForEach(&server.slaves,node) {
+            slave = elNodeValue(node,el_slave,client);
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) break;
         }
+        if (node == &server.slaves.head) node = NULL;
         /* To attach this slave, we check that it has at least all the
          * capabilities of the slave that triggered the current BGSAVE. */
-        if (ln && ((c->slave_capa & slave->slave_capa) == slave->slave_capa)) {
+        if (node && ((c->slave_capa & slave->slave_capa) == slave->slave_capa)) {
             /* Perfect, the server is already registering differences for
              * another slave. Set the right state, and copy the buffer. */
             copyClientOutputBuffer(c,slave);
@@ -938,14 +927,12 @@ void sendBulkToSlave(aeEventLoop *el, int fd, void *privdata, int mask) {
  * The 'type' argument is the type of the child that terminated
  * (if it had a disk or socket target). */
 void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
-    listNode *ln;
+    elNode *node, *next;
     int startbgsave = 0;
     int mincapa = -1;
-    listIter li;
 
-    listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
+    elForEachSafe(&server.slaves,node,next) {
+        client *slave = elNodeValue(node,el_slave,client);
 
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
             startbgsave = 1;
@@ -2031,8 +2018,7 @@ void slaveofCommand(client *c) {
  * in an easy to process format. */
 void roleCommand(client *c) {
     if (server.masterhost == NULL) {
-        listIter li;
-        listNode *ln;
+        elNode *node;
         void *mbcount;
         int slaves = 0;
 
@@ -2040,9 +2026,8 @@ void roleCommand(client *c) {
         addReplyBulkCBuffer(c,"master",6);
         addReplyLongLong(c,server.master_repl_offset);
         mbcount = addDeferredMultiBulkLength(c);
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = ln->value;
+        elForEach(&server.slaves,node) {
+            client *slave = elNodeValue(node,el_slave,client);
             char ip[NET_IP_STR_LEN], *slaveip = slave->slave_ip;
 
             if (slaveip[0] == '\0') {
@@ -2229,16 +2214,14 @@ void replicationResurrectCachedMaster(int newfd) {
  * If the option is active, the server will prevent writes if there are not
  * enough connected slaves with the specified lag (or less). */
 void refreshGoodSlavesCount(void) {
-    listIter li;
-    listNode *ln;
+    elNode *node;
     int good = 0;
 
     if (!server.repl_min_slaves_to_write ||
         !server.repl_min_slaves_max_lag) return;
 
-    listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
+    elForEach(&server.slaves,node) {
+        client *slave = elNodeValue(node,el_slave,client);
         time_t lag = server.unixtime - slave->repl_ack_time;
 
         if (slave->replstate == SLAVE_STATE_ONLINE &&
@@ -2368,13 +2351,11 @@ void replicationRequestAckFromSlaves(void) {
 /* Return the number of slaves that already acknowledged the specified
  * replication offset. */
 int replicationCountAcksByOffset(long long offset) {
-    listIter li;
-    listNode *ln;
+    elNode *node;
     int count = 0;
 
-    listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
+    elForEach(&server.slaves,node) {
+        client *slave = elNodeValue(node,el_slave,client);
 
         if (slave->replstate != SLAVE_STATE_ONLINE) continue;
         if (slave->repl_ack_off >= offset) count++;
@@ -2412,7 +2393,7 @@ void waitCommand(client *c) {
     c->bpop.timeout = timeout;
     c->bpop.reploffset = offset;
     c->bpop.numreplicas = numreplicas;
-    listAddNodeTail(server.clients_waiting_acks,c);
+    elAddNodeTail(&server.clients_waiting_acks,&c->el_waiting_acks);
     blockClient(c,BLOCKED_WAIT);
 
     /* Make sure that the server will send an ACK request to all the slaves
@@ -2425,9 +2406,7 @@ void waitCommand(client *c) {
  * waiting for replica acks. Never call it directly, call unblockClient()
  * instead. */
 void unblockClientWaitingReplicas(client *c) {
-    listNode *ln = listSearchKey(server.clients_waiting_acks,c);
-    serverAssert(ln != NULL);
-    listDelNode(server.clients_waiting_acks,ln);
+    elDelNode(&server.clients_waiting_acks,&c->el_waiting_acks);
 }
 
 /* Check if there are clients blocked in WAIT that can be unblocked since
@@ -2436,12 +2415,10 @@ void processClientsWaitingReplicas(void) {
     long long last_offset = 0;
     int last_numreplicas = 0;
 
-    listIter li;
-    listNode *ln;
+    elNode *node, *next;
 
-    listRewind(server.clients_waiting_acks,&li);
-    while((ln = listNext(&li))) {
-        client *c = ln->value;
+    elForEachSafe(&server.clients_waiting_acks,node,next) {
+        client *c = elNodeValue(node,el_waiting_acks,client);
 
         /* Every time we find a client that is satisfied for a given
          * offset and number of replicas, we remember it so the next client
@@ -2537,16 +2514,15 @@ void replicationCron(void) {
      * So slaves can implement an explicit timeout to masters, and will
      * be able to detect a link disconnection even if the TCP connection
      * will not actually go down. */
-    listIter li;
-    listNode *ln;
+    elNode *node;
     robj *ping_argv[1];
 
     /* First, send PING according to ping_slave_period. */
     if ((replication_cron_loops % server.repl_ping_slave_period) == 0 &&
-        listLength(server.slaves))
+        server.slaves.len)
     {
         ping_argv[0] = createStringObject("PING",4);
-        replicationFeedSlaves(server.slaves, server.slaveseldb,
+        replicationFeedSlaves(&server.slaves, server.slaveseldb,
             ping_argv, 1);
         decrRefCount(ping_argv[0]);
     }
@@ -2565,9 +2541,8 @@ void replicationCron(void) {
      * last interaction timer preventing a timeout. In this case we ignore the
      * ping period and refresh the connection once per second since certain
      * timeouts are set at a few seconds (example: PSYNC response). */
-    listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = ln->value;
+    elForEach(&server.slaves,node) {
+        client *slave = elNodeValue(node,el_slave,client);
 
         int is_presync =
             (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
@@ -2582,13 +2557,11 @@ void replicationCron(void) {
     }
 
     /* Disconnect timedout slaves. */
-    if (listLength(server.slaves)) {
-        listIter li;
-        listNode *ln;
+    if (server.slaves.len) {
+        elNode *node, *next;
 
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = ln->value;
+        elForEachSafe(&server.slaves,node,next) {
+            client *slave = elNodeValue(node,el_slave,client);
 
             if (slave->replstate != SLAVE_STATE_ONLINE) continue;
             if (slave->flags & CLIENT_PRE_PSYNC) continue;
@@ -2607,7 +2580,7 @@ void replicationCron(void) {
      * without sub-slaves attached should still accumulate data into the
      * backlog, in order to reply to PSYNC queries if they are turned into
      * masters after a failover. */
-    if (listLength(server.slaves) == 0 && server.repl_backlog_time_limit &&
+    if (server.slaves.len == 0 && server.repl_backlog_time_limit &&
         server.repl_backlog && server.masterhost == NULL)
     {
         time_t idle = server.unixtime - server.repl_no_slaves_since;
@@ -2641,7 +2614,7 @@ void replicationCron(void) {
     /* If AOF is disabled and we no longer have attached slaves, we can
      * free our Replication Script Cache as there is no need to propagate
      * EVALSHA at all. */
-    if (listLength(server.slaves) == 0 &&
+    if (server.slaves.len == 0 &&
         server.aof_state == AOF_OFF &&
         listLength(server.repl_scriptcache_fifo) != 0)
     {
@@ -2658,12 +2631,10 @@ void replicationCron(void) {
         time_t idle, max_idle = 0;
         int slaves_waiting = 0;
         int mincapa = -1;
-        listNode *ln;
-        listIter li;
+        elNode *node;
 
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *slave = ln->value;
+        elForEach(&server.slaves,node) {
+            client *slave = elNodeValue(node,el_slave,client);
             if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_START) {
                 idle = server.unixtime - slave->lastinteraction;
                 if (idle > max_idle) max_idle = idle;

@@ -192,8 +192,8 @@ handle_monitor:
      * MUTLI, EXEC, ... commands inside transaction ...
      * Instead EXEC is flagged as CMD_SKIP_MONITOR in the command
      * table, and we do it here with correct ordering. */
-    if (listLength(server.monitors) && !server.loading)
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+    if (server.monitors.len && !server.loading)
+        replicationFeedMonitors(c,&server.monitors,c->db->id,c->argv,c->argc);
 }
 
 /* ===================== WATCH (CAS alike for MULTI/EXEC) ===================
@@ -297,13 +297,13 @@ void touchWatchedKey(redisDb *db, robj *key) {
  * be touched. "dbid" is the DB that's getting the flush. -1 if it is
  * a FLUSHALL operation (all the DBs flushed). */
 void touchWatchedKeysOnFlush(int dbid) {
-    listIter li1, li2;
+    elNode *node1;
+    listIter li2;
     listNode *ln;
 
     /* For every client, check all the waited keys */
-    listRewind(server.clients,&li1);
-    while((ln = listNext(&li1))) {
-        client *c = listNodeValue(ln);
+    elForEach(&server.clients,node1) {
+        client *c = elNodeValue(node1,el_all,client);
         listRewind(c->watched_keys,&li2);
         while((ln = listNext(&li2))) {
             watchedKey *wk = listNodeValue(ln);

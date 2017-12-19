@@ -55,6 +55,7 @@ typedef long long mstime_t; /* millisecond time type. */
 #include "sds.h"     /* Dynamic safe strings */
 #include "dict.h"    /* Hash tables */
 #include "adlist.h"  /* Linked lists */
+#include "elist.h"   /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
 #include "ziplist.h" /* Compact list data structure */
@@ -733,7 +734,12 @@ typedef struct client {
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
     sds peerid;             /* Cached peer ID. */
-    listNode *client_list_node; /* list node in client list */
+    elNode el_all;          /* List node in server.clients. */
+    elNode el_to_close;     /* List node in server.clients_to_close. */
+    elNode el_pending_write; /* List node in server.clients_pending_write. */
+    elNode el_slave;        /* List node in server.slaves or server.monitors */
+    elNode el_waiting_acks; /* List node in server.clients_waiting_acks. */
+    elNode el_unblocked;    /* List node in server.unblocked_clients. */
 
     /* Response buffer */
     int bufpos;
@@ -923,10 +929,10 @@ struct redisServer {
     int sofd;                   /* Unix socket file descriptor */
     int cfd[CONFIG_BINDADDR_MAX];/* Cluster bus listening socket */
     int cfd_count;              /* Used slots in cfd[] */
-    list *clients;              /* List of active clients */
-    list *clients_to_close;     /* Clients to close asynchronously */
-    list *clients_pending_write; /* There is to write or install handler. */
-    list *slaves, *monitors;    /* List of slaves and MONITORs */
+    elList clients;             /* List of active clients */
+    elList clients_to_close;    /* Clients to close asynchronously */
+    elList clients_pending_write; /* There is to write or install handler. */
+    elList slaves, monitors;    /* List of slaves and MONITORs */
     client *current_client; /* Current client, only used on crash report */
     int clients_paused;         /* True if clients are currently paused */
     mstime_t clients_pause_end_time; /* Time when we undo clients_paused */
@@ -1123,7 +1129,7 @@ struct redisServer {
     list *repl_scriptcache_fifo;        /* First in, first out LRU eviction. */
     unsigned int repl_scriptcache_size; /* Max number of elements. */
     /* Synchronous replication. */
-    list *clients_waiting_acks;         /* Clients waiting in WAIT command. */
+    elList clients_waiting_acks;        /* Clients waiting in WAIT command. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
@@ -1135,7 +1141,7 @@ struct redisServer {
     /* Blocked clients */
     unsigned int blocked_clients;   /* # of clients executing a blocking cmd.*/
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
-    list *unblocked_clients; /* list of clients to unblock before next loop */
+    elList unblocked_clients;   /* list of clients to unblock before next loop */
     list *ready_keys;        /* List of readyList structures for BLPOP & co */
     /* Sort parameters - qsort_r() is only available under BSD so we
      * have to take this state global, in order to pass it to sortCompare() */
@@ -1492,9 +1498,9 @@ ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncReadLine(int fd, char *ptr, ssize_t size, long long timeout);
 
 /* Replication */
-void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc);
-void replicationFeedSlavesFromMasterStream(list *slaves, char *buf, size_t buflen);
-void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv, int argc);
+void replicationFeedSlaves(elList *slaves, int dictid, robj **argv, int argc);
+void replicationFeedSlavesFromMasterStream(elList *slaves, char *buf, size_t buflen);
+void replicationFeedMonitors(client *c, elList *monitors, int dictid, robj **argv, int argc);
 void updateSlavesWaitingBgsave(int bgsaveerr, int type);
 void replicationCron(void);
 void replicationHandleMasterDisconnection(void);

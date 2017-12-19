@@ -110,14 +110,12 @@ void blockClient(client *c, int btype) {
  * in order to process the pending input buffer of clients that were
  * unblocked after a blocking operation. */
 void processUnblockedClients(void) {
-    listNode *ln;
+    elNode *node, *next;
     client *c;
 
-    while (listLength(server.unblocked_clients)) {
-        ln = listFirst(server.unblocked_clients);
-        serverAssert(ln != NULL);
-        c = ln->value;
-        listDelNode(server.unblocked_clients,ln);
+    elForEachSafe(&server.unblocked_clients,node,next) {
+        c = elNodeValue(node,el_unblocked,client);
+        elDelNode(&server.unblocked_clients,node);
         c->flags &= ~CLIENT_UNBLOCKED;
 
         /* Process remaining data in the input buffer, unless the client
@@ -154,7 +152,7 @@ void unblockClient(client *c) {
      * blocking operation, don't add back it into the list multiple times. */
     if (!(c->flags & CLIENT_UNBLOCKED)) {
         c->flags |= CLIENT_UNBLOCKED;
-        listAddNodeTail(server.unblocked_clients,c);
+        elAddNodeTail(&server.unblocked_clients,&c->el_unblocked);
     }
 }
 
@@ -181,12 +179,10 @@ void replyToBlockedClientTimedOut(client *c) {
  * The semantics is to send an -UNBLOCKED error to the client, disconnecting
  * it at the same time. */
 void disconnectAllBlockedClients(void) {
-    listNode *ln;
-    listIter li;
+    elNode *node;
 
-    listRewind(server.clients,&li);
-    while((ln = listNext(&li))) {
-        client *c = listNodeValue(ln);
+    elForEach(&server.clients,node) {
+        client *c = elNodeValue(node,el_all,client);
 
         if (c->flags & CLIENT_BLOCKED) {
             addReplySds(c,sdsnew(

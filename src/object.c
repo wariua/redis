@@ -887,13 +887,11 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total += mem;
 
     mem = 0;
-    if (listLength(server.slaves)) {
-        listIter li;
-        listNode *ln;
+    if (server.slaves.len) {
+        elNode *node;
 
-        listRewind(server.slaves,&li);
-        while((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
+        elForEach(&server.slaves,node) {
+            client *c = elNodeValue(node,el_slave,client);
             mem += getClientOutputBufferMemoryUsage(c);
             mem += sdsAllocSize(c->querybuf);
             mem += sizeof(client);
@@ -903,13 +901,11 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mem_total+=mem;
 
     mem = 0;
-    if (listLength(server.clients)) {
-        listIter li;
-        listNode *ln;
+    if (server.clients.len) {
+        elNode *node;
 
-        listRewind(server.clients,&li);
-        while((ln = listNext(&li))) {
-            client *c = listNodeValue(ln);
+        elForEach(&server.clients,node) {
+            client *c = elNodeValue(node,el_all,client);
             if (c->flags & CLIENT_SLAVE)
                 continue;
             mem += getClientOutputBufferMemoryUsage(c);
@@ -1002,8 +998,8 @@ sds getMemoryDoctorReport(void) {
         }
 
         /* Clients using more than 200k each average? */
-        long numslaves = listLength(server.slaves);
-        long numclients = listLength(server.clients)-numslaves;
+        long numslaves = server.slaves.len;
+        long numclients = server.clients.len-numslaves;
         if (mh->clients_normal / numclients > (1024*200)) {
             big_client_buf = 1;
             num_reports++;

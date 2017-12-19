@@ -855,7 +855,7 @@ void clientsCron(void) {
      * per call. Since this function is called server.hz times per second
      * we are sure that in the worst case we process all the clients in 1
      * second. */
-    int numclients = listLength(server.clients);
+    int numclients = server.clients.len;
     int iterations = numclients/server.hz;
     mstime_t now = mstime();
 
@@ -866,16 +866,17 @@ void clientsCron(void) {
         iterations = (numclients < CLIENTS_CRON_MIN_ITERATIONS) ?
                      numclients : CLIENTS_CRON_MIN_ITERATIONS;
 
-    while(listLength(server.clients) && iterations--) {
+    while(server.clients.len && iterations--) {
         client *c;
-        listNode *head;
+        elNode *node;
 
         /* Rotate the list, take the current head, process.
          * This way if the client must be removed from the list it's the
          * first element and we don't incur into O(N) computation. */
-        listRotate(server.clients);
-        head = listFirst(server.clients);
-        c = listNodeValue(head);
+        node = elLast(&server.clients);
+        elDelNode(&server.clients,node);
+        elAddNodeHead(&server.clients,node);
+        c = elNodeValue(node,el_all,client);
         /* The following functions do different service checks on the client.
          * The protocol is that they return non-zero if the client was
          * terminated. */
@@ -1038,8 +1039,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         run_with_period(5000) {
             serverLog(LL_VERBOSE,
                 "%lu clients connected (%lu slaves), %zu bytes in use",
-                listLength(server.clients)-listLength(server.slaves),
-                listLength(server.slaves),
+                server.clients.len-server.slaves.len,
+                server.slaves.len,
                 zmalloc_used_memory());
         }
     }
@@ -1220,7 +1221,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
         argv[0] = createStringObject("REPLCONF",8);
         argv[1] = createStringObject("GETACK",6);
         argv[2] = createStringObject("*",1); /* Not used argument. */
-        replicationFeedSlaves(server.slaves, server.slaveseldb, argv, 3);
+        replicationFeedSlaves(&server.slaves, server.slaveseldb, argv, 3);
         decrRefCount(argv[0]);
         decrRefCount(argv[1]);
         decrRefCount(argv[2]);
@@ -1229,7 +1230,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
 
     /* Unblock all the clients blocked for synchronous replication
      * in WAIT. */
-    if (listLength(server.clients_waiting_acks))
+    if (server.clients_waiting_acks.len)
         processClientsWaitingReplicas();
 
     /* Check if there are clients unblocked by modules that implement
@@ -1237,7 +1238,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     moduleHandleBlockedClients();
 
     /* Try to process pending commands for clients that were just unblocked. */
-    if (listLength(server.unblocked_clients))
+    if (server.unblocked_clients.len)
         processUnblockedClients();
 
     /* Write the AOF buffer on disk */
@@ -1836,15 +1837,15 @@ void initServer(void) {
 
     server.pid = getpid();
     server.current_client = NULL;
-    server.clients = listCreate();
-    server.clients_to_close = listCreate();
-    server.slaves = listCreate();
-    server.monitors = listCreate();
-    server.clients_pending_write = listCreate();
+    elInitList(&server.clients);
+    elInitList(&server.clients_to_close);
+    elInitList(&server.slaves);
+    elInitList(&server.monitors);
+    elInitList(&server.clients_pending_write);
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
-    server.unblocked_clients = listCreate();
+    elInitList(&server.unblocked_clients);
     server.ready_keys = listCreate();
-    server.clients_waiting_acks = listCreate();
+    elInitList(&server.clients_waiting_acks);
     server.get_ack_from_slaves = 0;
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
@@ -2124,7 +2125,7 @@ void propagate(struct redisCommand *cmd, int dbid, robj **argv, int argc,
     if (server.aof_state != AOF_OFF && flags & PROPAGATE_AOF)
         feedAppendOnlyFile(cmd,dbid,argv,argc);
     if (flags & PROPAGATE_REPL)
-        replicationFeedSlaves(server.slaves,dbid,argv,argc);
+        replicationFeedSlaves(&server.slaves,dbid,argv,argc);
 }
 
 /* Used inside commands to schedule the propagation of additional commands
@@ -2223,11 +2224,11 @@ void call(client *c, int flags) {
 
     /* Sent the command to clients in MONITOR mode, only if the commands are
      * not generated from reading an AOF. */
-    if (listLength(server.monitors) &&
+    if (server.monitors.len &&
         !server.loading &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN)))
     {
-        replicationFeedMonitors(c,server.monitors,c->db->id,c->argv,c->argc);
+        replicationFeedMonitors(c,&server.monitors,c->db->id,c->argv,c->argc);
     }
 
     /* Initialization: clear the flags that must be set by the command on
@@ -2939,7 +2940,7 @@ sds genRedisInfoString(char *section) {
             "client_longest_output_list:%lu\r\n"
             "client_biggest_input_buf:%lu\r\n"
             "blocked_clients:%d\r\n",
-            listLength(server.clients)-listLength(server.slaves),
+            server.clients.len-server.slaves.len,
             lol, bib,
             server.blocked_clients);
     }
@@ -3224,7 +3225,7 @@ sds genRedisInfoString(char *section) {
 
         info = sdscatprintf(info,
             "connected_slaves:%lu\r\n",
-            listLength(server.slaves));
+            server.slaves.len);
 
         /* If min-slaves-to-write is active, write the number of slaves
          * currently considered 'good'. */
@@ -3235,14 +3236,12 @@ sds genRedisInfoString(char *section) {
                 server.repl_good_slaves_count);
         }
 
-        if (listLength(server.slaves)) {
+        if (server.slaves.len) {
             int slaveid = 0;
-            listNode *ln;
-            listIter li;
+            elNode *node;
 
-            listRewind(server.slaves,&li);
-            while((ln = listNext(&li))) {
-                client *slave = listNodeValue(ln);
+            elForEach(&server.slaves,node) {
+                client *slave = elNodeValue(node,el_slave,client);
                 char *state = NULL;
                 char ip[NET_IP_STR_LEN], *slaveip = slave->slave_ip;
                 int port;
@@ -3374,7 +3373,7 @@ void monitorCommand(client *c) {
     if (c->flags & CLIENT_SLAVE) return;
 
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
-    listAddNodeTail(server.monitors,c);
+    elAddNodeTail(&server.monitors,&c->el_slave);
     addReply(c,shared.ok);
 }
 

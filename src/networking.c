@@ -70,11 +70,7 @@ int listMatchObjects(void *a, void *b) {
 /* This function links the client to the global linked list of clients.
  * unlinkClient() does the opposite, among other things. */
 void linkClient(client *c) {
-    listAddNodeTail(server.clients,c);
-    /* Note that we remember the linked list node where the client is stored,
-     * this way removing the client in unlinkClient() will not require
-     * a linear scan, but just a constant time operation. */
-    c->client_list_node = listLast(server.clients);
+    elAddNodeTail(&server.clients,&c->el_all);
 }
 
 client *createClient(int fd) {
@@ -144,7 +140,6 @@ client *createClient(int fd) {
     c->pubsub_channels = dictCreate(&objectKeyPointerValueDictType,NULL);
     c->pubsub_patterns = listCreate();
     c->peerid = NULL;
-    c->client_list_node = NULL;
     listSetFreeMethod(c->pubsub_patterns,decrRefCountVoid);
     listSetMatchMethod(c->pubsub_patterns,listMatchObjects);
     if (fd != -1) linkClient(c);
@@ -205,7 +200,7 @@ int prepareClientToWrite(client *c) {
          * a system call. We'll only really install the write handler if
          * we'll not be able to write the whole reply at once. */
         c->flags |= CLIENT_PENDING_WRITE;
-        listAddNodeHead(server.clients_pending_write,c);
+        elAddNodeHead(&server.clients_pending_write,&c->el_pending_write);
     }
 
     /* Authorize the caller to queue in the output buffer of this client. */
@@ -647,7 +642,7 @@ static void acceptCommonHandler(int fd, int flags, char *ip) {
      * connection. Note that we create the client instead to check before
      * for this condition, since now the socket is already set in non-blocking
      * mode and we can send an error for free using the Kernel I/O */
-    if (listLength(server.clients) > server.maxclients) {
+    if (server.clients.len > server.maxclients) {
         char *err = "-ERR max number of clients reached\r\n";
 
         /* That's a best effort error message, don't check write errors */
@@ -755,9 +750,10 @@ static void freeClientArgv(client *c) {
  * when we resync with our own master and want to force all our slaves to
  * resync with us as well. */
 void disconnectSlaves(void) {
-    while (listLength(server.slaves)) {
-        listNode *ln = listFirst(server.slaves);
-        freeClient((client*)ln->value);
+    while (server.slaves.len) {
+        elNode *node = elFirst(&server.slaves);
+        client *c = elNodeValue(node,el_slave,client);
+        freeClient(c);
     }
 }
 
@@ -765,8 +761,6 @@ void disconnectSlaves(void) {
  * be referenced, not including the Pub/Sub channels.
  * This is used by freeClient() and replicationCacheMaster(). */
 void unlinkClient(client *c) {
-    listNode *ln;
-
     /* If this is marked as current client unset it. */
     if (server.current_client == c) server.current_client = NULL;
 
@@ -775,10 +769,7 @@ void unlinkClient(client *c) {
      * fd is already set to -1. */
     if (c->fd != -1) {
         /* Remove from the list of active clients. */
-        if (c->client_list_node) {
-            listDelNode(server.clients,c->client_list_node);
-            c->client_list_node = NULL;
-        }
+        elDelNode(&server.clients,&c->el_all);
 
         /* Unregister async I/O handlers and close the socket. */
         aeDeleteFileEvent(server.el,c->fd,AE_READABLE);
@@ -789,25 +780,19 @@ void unlinkClient(client *c) {
 
     /* Remove from the list of pending writes if needed. */
     if (c->flags & CLIENT_PENDING_WRITE) {
-        ln = listSearchKey(server.clients_pending_write,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients_pending_write,ln);
+        elDelNode(&server.clients_pending_write,&c->el_pending_write);
         c->flags &= ~CLIENT_PENDING_WRITE;
     }
 
     /* When client was just unblocked because of a blocking operation,
      * remove it from the list of unblocked clients. */
     if (c->flags & CLIENT_UNBLOCKED) {
-        ln = listSearchKey(server.unblocked_clients,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.unblocked_clients,ln);
+        elDelNode(&server.unblocked_clients,&c->el_unblocked);
         c->flags &= ~CLIENT_UNBLOCKED;
     }
 }
 
 void freeClient(client *c) {
-    listNode *ln;
-
     /* If it is our master that's beging disconnected we should make sure
      * to cache the state to try a partial resynchronization later.
      *
@@ -866,14 +851,12 @@ void freeClient(client *c) {
             if (c->repldbfd != -1) close(c->repldbfd);
             if (c->replpreamble) sdsfree(c->replpreamble);
         }
-        list *l = (c->flags & CLIENT_MONITOR) ? server.monitors : server.slaves;
-        ln = listSearchKey(l,c);
-        serverAssert(ln != NULL);
-        listDelNode(l,ln);
+        elList *l = (c->flags & CLIENT_MONITOR) ? &server.monitors : &server.slaves;
+        elDelNode(l,&c->el_slave);
         /* We need to remember the time when we started to have zero
          * attached slaves, as after some time we'll free the replication
          * backlog. */
-        if (c->flags & CLIENT_SLAVE && listLength(server.slaves) == 0)
+        if (c->flags & CLIENT_SLAVE && server.slaves.len == 0)
             server.repl_no_slaves_since = server.unixtime;
         refreshGoodSlavesCount();
     }
@@ -884,11 +867,8 @@ void freeClient(client *c) {
 
     /* If this client was scheduled for async freeing we need to remove it
      * from the queue. */
-    if (c->flags & CLIENT_CLOSE_ASAP) {
-        ln = listSearchKey(server.clients_to_close,c);
-        serverAssert(ln != NULL);
-        listDelNode(server.clients_to_close,ln);
-    }
+    if (c->flags & CLIENT_CLOSE_ASAP)
+        elDelNode(&server.clients_to_close,&c->el_to_close);
 
     /* Release other dynamically allocated client structure fields,
      * and finally release the client structure itself. */
@@ -906,17 +886,17 @@ void freeClient(client *c) {
 void freeClientAsync(client *c) {
     if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_LUA) return;
     c->flags |= CLIENT_CLOSE_ASAP;
-    listAddNodeTail(server.clients_to_close,c);
+    elAddNodeTail(&server.clients_to_close,&c->el_to_close);
 }
 
 void freeClientsInAsyncFreeQueue(void) {
-    while (listLength(server.clients_to_close)) {
-        listNode *ln = listFirst(server.clients_to_close);
-        client *c = listNodeValue(ln);
+    while (server.clients_to_close.len) {
+        elNode *node = elFirst(&server.clients_to_close);
+        client *c = elNodeValue(node,el_to_close,client);
 
         c->flags &= ~CLIENT_CLOSE_ASAP;
         freeClient(c);
-        listDelNode(server.clients_to_close,ln);
+        elDelNode(&server.clients_to_close,node);
     }
 }
 
@@ -1020,15 +1000,13 @@ void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask) {
  * need to use a syscall in order to install the writable event handler,
  * get it called, and so forth. */
 int handleClientsWithPendingWrites(void) {
-    listIter li;
-    listNode *ln;
-    int processed = listLength(server.clients_pending_write);
+    elNode *node, *next;
+    int processed = server.clients_pending_write.len;
 
-    listRewind(server.clients_pending_write,&li);
-    while((ln = listNext(&li))) {
-        client *c = listNodeValue(ln);
+    elForEachSafe(&server.clients_pending_write,node,next) {
+        client *c = elNodeValue(node, el_pending_write,client);
         c->flags &= ~CLIENT_PENDING_WRITE;
-        listDelNode(server.clients_pending_write,ln);
+        elDelNode(&server.clients_pending_write,node);
 
         /* Try to write buffers to the client socket. */
         if (writeToClient(c->fd,c,0) == C_ERR) continue;
@@ -1456,7 +1434,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
         processInputBuffer(c);
         size_t applied = c->reploff - prev_offset;
         if (applied) {
-            replicationFeedSlavesFromMasterStream(server.slaves,
+            replicationFeedSlavesFromMasterStream(&server.slaves,
                     c->pending_querybuf, applied);
             sdsrange(c->pending_querybuf,applied,-1);
         }
@@ -1466,13 +1444,11 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
 void getClientsMaxBuffers(unsigned long *longest_output_list,
                           unsigned long *biggest_input_buffer) {
     client *c;
-    listNode *ln;
-    listIter li;
+    elNode *node;
     unsigned long lol = 0, bib = 0;
 
-    listRewind(server.clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        c = listNodeValue(ln);
+    elForEach(&server.clients,node) {
+        c = elNodeValue(node,el_all,client);
 
         if (listLength(c->reply) > lol) lol = listLength(c->reply);
         if (sdslen(c->querybuf) > bib) bib = sdslen(c->querybuf);
@@ -1570,14 +1546,12 @@ sds catClientInfoString(sds s, client *client) {
 }
 
 sds getAllClientsInfoString(void) {
-    listNode *ln;
-    listIter li;
+    elNode *node;
     client *client;
-    sds o = sdsnewlen(NULL,200*listLength(server.clients));
+    sds o = sdsnewlen(NULL,200*server.clients.len);
     sdsclear(o);
-    listRewind(server.clients,&li);
-    while ((ln = listNext(&li)) != NULL) {
-        client = listNodeValue(ln);
+    elForEach(&server.clients,node) {
+        client = elNodeValue(node,el_all,struct client);
         o = catClientInfoString(o,client);
         o = sdscatlen(o,"\n",1);
     }
@@ -1585,10 +1559,6 @@ sds getAllClientsInfoString(void) {
 }
 
 void clientCommand(client *c) {
-    listNode *ln;
-    listIter li;
-    client *client;
-
     if (c->argc == 2 && !strcasecmp(c->argv[1]->ptr,"help")) {
         const char *help[] = {
 "getname -- Return the name of the current connection.",
@@ -1631,6 +1601,8 @@ NULL
         uint64_t id = 0;
         int skipme = 1;
         int killed = 0, close_this_client = 0;
+        elNode *node, *next;
+        client *client;
 
         if (c->argc == 3) {
             /* Old style syntax: CLIENT KILL <addr> */
@@ -1679,9 +1651,8 @@ NULL
         }
 
         /* Iterate clients killing all the matching clients. */
-        listRewind(server.clients,&li);
-        while ((ln = listNext(&li)) != NULL) {
-            client = listNodeValue(ln);
+        elForEachSafe(&server.clients,node,next) {
+            client = elNodeValue(node,el_all,struct client);
             if (addr && strcmp(getClientPeerId(client),addr) != 0) continue;
             if (type != -1 && getClientType(client) != type) continue;
             if (id != 0 && client->id != id) continue;
@@ -1969,12 +1940,10 @@ void asyncCloseClientOnOutputBufferLimitReached(client *c) {
  * This is also called by SHUTDOWN for a best-effort attempt to send
  * slaves the latest writes. */
 void flushSlavesOutputBuffers(void) {
-    listIter li;
-    listNode *ln;
+    elNode *node, *next;
 
-    listRewind(server.slaves,&li);
-    while((ln = listNext(&li))) {
-        client *slave = listNodeValue(ln);
+    elForEachSafe(&server.slaves,node,next) {
+        client *slave = elNodeValue(node,el_slave,client);
         int events;
 
         /* Note that the following will not flush output buffers of slaves
@@ -2022,23 +1991,21 @@ int clientsArePaused(void) {
     if (server.clients_paused &&
         server.clients_pause_end_time < server.mstime)
     {
-        listNode *ln;
-        listIter li;
+        elNode *node;
         client *c;
 
         server.clients_paused = 0;
 
         /* Put all the clients in the unblocked clients queue in order to
          * force the re-processing of the input buffer if any. */
-        listRewind(server.clients,&li);
-        while ((ln = listNext(&li)) != NULL) {
-            c = listNodeValue(ln);
+        elForEach(&server.clients,node) {
+            c = elNodeValue(node,el_all,client);
 
             /* Don't touch slaves and blocked clients. The latter pending
              * requests be processed when unblocked. */
             if (c->flags & (CLIENT_SLAVE|CLIENT_BLOCKED)) continue;
             c->flags |= CLIENT_UNBLOCKED;
-            listAddNodeTail(server.unblocked_clients,c);
+            elAddNodeTail(&server.unblocked_clients,&c->el_unblocked);
         }
     }
     return server.clients_paused;
