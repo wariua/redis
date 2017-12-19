@@ -86,6 +86,7 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
 #ifdef lzf_movsb
           lzf_movsb (op, ip, ctrl);
 #else
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
           switch (ctrl)
             {
               case 32: *op++ = *ip++; case 31: *op++ = *ip++; case 30: *op++ = *ip++; case 29: *op++ = *ip++;
@@ -97,6 +98,7 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
               case  8: *op++ = *ip++; case  7: *op++ = *ip++; case  6: *op++ = *ip++; case  5: *op++ = *ip++;
               case  4: *op++ = *ip++; case  3: *op++ = *ip++; case  2: *op++ = *ip++; case  1: *op++ = *ip++;
             }
+#pragma GCC diagnostic pop
 #endif
         }
       else /* back reference */
@@ -142,6 +144,7 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
           len += 2;
           lzf_movsb (op, ref, len);
 #else
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
           switch (len)
             {
               default:
@@ -175,6 +178,7 @@ lzf_decompress (const void *const in_data,  unsigned int in_len,
               case 0: *op++ = *ref++; /* two octets more */
                       *op++ = *ref++;
             }
+#pragma GCC diagnostic pop
 #endif
         }
     }

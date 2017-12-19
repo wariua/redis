@@ -141,6 +141,7 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
         v0 ^= m;
     }
 
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
     switch (left) {
     case 7: b |= ((uint64_t)in[6]) << 48;
     case 6: b |= ((uint64_t)in[5]) << 40;
@@ -151,6 +152,7 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
     case 1: b |= ((uint64_t)in[0]); break;
     case 0: break;
     }
+#pragma GCC diagnostic pop
 
     v3 ^= b;
 
@@ -201,6 +203,7 @@ uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
         v0 ^= m;
     }
 
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
     switch (left) {
     case 7: b |= ((uint64_t)siptlw(in[6])) << 48;
     case 6: b |= ((uint64_t)siptlw(in[5])) << 40;
@@ -211,6 +214,7 @@ uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k)
     case 1: b |= ((uint64_t)siptlw(in[0])); break;
     case 0: break;
     }
+#pragma GCC diagnostic pop
 
     v3 ^= b;
 

@@ -425,6 +425,7 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
         data += 8;
     }
 
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
     switch(len & 7) {
     case 7: h ^= (uint64_t)data[6] << 48;
     case 6: h ^= (uint64_t)data[5] << 40;
@@ -435,6 +436,7 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
     case 1: h ^= (uint64_t)data[0];
             h *= m;
     };
+#pragma GCC diagnostic pop
 
     h ^= h >> r;
     h *= m;
