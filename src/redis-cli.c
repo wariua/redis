@@ -2222,11 +2222,11 @@ static void getKeySizes(redisReply *keys, int *types,
 }
 
 static void findBigKeys(void) {
-    unsigned long long biggest[5] = {0}, counts[5] = {0}, totalsize[5] = {0};
+    unsigned long long biggest[TYPE_NONE] = {0}, counts[TYPE_NONE] = {0}, totalsize[TYPE_NONE] = {0};
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0;
-    sds maxkeys[5] = {0};
+    sds maxkeys[TYPE_NONE] = {0};
     char *typename[] = {"string","list","set","hash","zset","stream"};
-    char *typeunit[] = {"bytes","items","members","fields","members"};
+    char *typeunit[] = {"bytes","items","members","fields","members","streams"};
     redisReply *reply, *keys;
     unsigned int arrsize=0, i;
     int type, *types=NULL;
