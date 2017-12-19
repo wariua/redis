@@ -93,13 +93,13 @@ static inline void elDel(elNode *n)
 
 static inline void elAddNodeHead(elList *l, elNode *n)
 {
-    elAppendAfter(&l->head, n);
+    elAppendAfter(n, &l->head);
     l->len++;
 }
 
 static inline void elAddNodeTail(elList *l, elNode *n)
 {
-    elInsertBefore(&l->head, n);
+    elInsertBefore(n, &l->head);
     l->len++;
 }
 
