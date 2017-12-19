@@ -1849,6 +1849,10 @@ int connectWithMaster(void) {
         return C_ERR;
     }
 
+    anetEnableTcpNoDelay(NULL,fd);
+    if (server.tcpkeepalive)
+        anetKeepAlive(NULL,fd,server.tcpkeepalive);
+
     if (aeCreateFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE,syncWithMaster,NULL) ==
             AE_ERR)
     {
