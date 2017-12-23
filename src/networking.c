@@ -103,6 +103,7 @@ client *createClient(int fd) {
     c->querybuf_peak = 0;
     c->reqtype = 0;
     c->argc = 0;
+    c->argc_alloc = 0;
     c->argv = NULL;
     c->cmd = c->lastcmd = NULL;
     c->multibulklen = 0;
@@ -1102,8 +1103,10 @@ int processInlineBuffer(client *c) {
 
     /* Setup argv array on client structure */
     if (argc) {
-        if (c->argv) zfree(c->argv);
-        c->argv = zmalloc(sizeof(robj*)*argc);
+        if (argc > c->argc_alloc) {
+            c->argv = zrealloc(c->argv,sizeof(robj*)*argc);
+            c->argc_alloc = argc;
+        }
     }
 
     /* Create redis objects for all arguments. */
@@ -1203,8 +1206,10 @@ int processMultibulkBuffer(client *c) {
         c->multibulklen = ll;
 
         /* Setup argv array on client structure */
-        if (c->argv) zfree(c->argv);
-        c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
+        if (c->multibulklen > c->argc_alloc) {
+            c->argv = zrealloc(c->argv,sizeof(robj*)*c->multibulklen);
+            c->argc_alloc = c->multibulklen;
+        }
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
@@ -1773,6 +1778,7 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
     zfree(c->argv);
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
+    c->argc_alloc = argc;
     c->argc = argc;
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
@@ -1784,6 +1790,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
     freeClientArgv(c);
     zfree(c->argv);
     c->argv = argv;
+    c->argc_alloc = argc;
     c->argc = argc;
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
@@ -1804,7 +1811,10 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
 
     if (i >= c->argc) {
-        c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
+        if (i >= c->argc_alloc) {
+            c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
+            c->argc_alloc = i+1;
+        }
         c->argc = i+1;
         c->argv[i] = NULL;
     }
