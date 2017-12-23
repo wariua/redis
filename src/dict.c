@@ -56,11 +56,11 @@
  * for Redis, as we use copy-on-write and don't want to move too much memory
  * around when there is a child performing saving operations.
  *
- * Note that even when dict_can_resize is set to 0, not all resizes are
- * prevented: a hash table is still allowed to grow if the ratio between
- * the number of elements and the buckets > dict_force_resize_ratio. */
-static int dict_can_resize = 1;
-static unsigned int dict_force_resize_ratio = 5;
+ * Note that even when resizing is disabled, not all resizes are prevented:
+ * a small hash table is still allowed to grow. It will incur unsharing of
+ * a few memory pages if any. Resizing bigger tables are blocked, but they
+ * can stay efficient longer than smaller ones. */
+static unsigned long dict_resize_limit = 0;
 
 /* -------------------------- private prototypes ---------------------------- */
 
@@ -136,7 +136,7 @@ int dictResize(dict *d)
 {
     int minimal;
 
-    if (!dict_can_resize || dictIsRehashing(d)) return DICT_ERR;
+    if (dict_resize_limit > 0 || dictIsRehashing(d)) return DICT_ERR;
     minimal = d->ht[0].used;
     if (minimal < DICT_HT_INITIAL_SIZE)
         minimal = DICT_HT_INITIAL_SIZE;
@@ -923,12 +923,10 @@ static int _dictExpandIfNeeded(dict *d)
     if (d->ht[0].size == 0) return dictExpand(d, DICT_HT_INITIAL_SIZE);
 
     /* If we reached the 1:1 ratio, and we are allowed to resize the hash
-     * table (global setting) or we should avoid it but the ratio between
-     * elements/buckets is over the "safe" threshold, we resize doubling
-     * the number of buckets. */
+     * table (global setting) or the table is small enough, we resize
+     * doubling the number of buckets. */
     if (d->ht[0].used >= d->ht[0].size &&
-        (dict_can_resize ||
-         d->ht[0].used/d->ht[0].size > dict_force_resize_ratio))
+        (dict_resize_limit == 0 || d->ht[0].size < dict_resize_limit))
     {
         return dictExpand(d, d->ht[0].used*2);
     }
@@ -988,11 +986,11 @@ void dictEmpty(dict *d, void(callback)(void*)) {
 }
 
 void dictEnableResize(void) {
-    dict_can_resize = 1;
+    dict_resize_limit = 0;
 }
 
 void dictDisableResize(void) {
-    dict_can_resize = 0;
+    dict_resize_limit = 512; /* XXX: arbitrary value */
 }
 
 uint64_t dictGetHash(dict *d, const void *key) {
