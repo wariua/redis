@@ -1740,7 +1740,10 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
 #define LOOKUP_NOTOUCH (1<<0)
 void dbAdd(redisDb *db, robj *key, robj *val);
 void dbOverwrite(redisDb *db, robj *key, robj *val);
-void setKey(redisDb *db, robj *key, robj *val);
+#define setKey(db, key, val)    setKeyEx(db, key, val, 0)
+int setKeyEx(redisDb *db, robj *key, robj *val, int flags);
+#define SETKEY_FLAG_CREATE_ONLY     (1<<0)
+#define SETKEY_FLAG_OVERWRITE_ONLY  (1<<1)
 int dbExists(redisDb *db, robj *key);
 robj *dbRandomKey(redisDb *db);
 int dbSyncDelete(redisDb *db, robj *key);

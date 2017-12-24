@@ -77,13 +77,13 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (unit == UNIT_SECONDS) milliseconds *= 1000;
     }
 
-    if ((flags & OBJ_SET_NX && lookupKeyWrite(c->db,key) != NULL) ||
-        (flags & OBJ_SET_XX && lookupKeyWrite(c->db,key) == NULL))
+    if (setKeyEx(c->db,key,val,
+                 (flags & OBJ_SET_NX) ? SETKEY_FLAG_CREATE_ONLY :
+                 (flags & OBJ_SET_XX) ? SETKEY_FLAG_OVERWRITE_ONLY : 0) != C_OK)
     {
         addReply(c, abort_reply ? abort_reply : shared.nullbulk);
         return;
     }
-    setKey(c->db,key,val);
     server.dirty++;
     if (expire) setExpire(c,c->db,key,mstime()+milliseconds);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
