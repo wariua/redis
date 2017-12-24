@@ -108,12 +108,13 @@ static void _dictReset(dictht *ht)
 }
 
 /* Create a new hash table */
-dict *dictCreate(dictType *type,
+dict *dictCreateEx(dictType *type, unsigned long size,
         void *privDataPtr)
 {
     dict *d = zmalloc(sizeof(*d));
 
     _dictInit(d,type,privDataPtr);
+    dictExpand(d, size);
     return d;
 }
 

@@ -1227,11 +1227,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb) {
 
         /* Use a regular set when there are too many entries. */
         if (len > server.set_max_intset_entries) {
-            o = createSetObject();
-            /* It's faster to expand the dict to the right size asap in order
-             * to avoid rehashing */
-            if (len > DICT_HT_INITIAL_SIZE)
-                dictExpand(o->ptr,len);
+            o = createSetObjectEx(len);
         } else {
             o = createIntsetObject();
         }

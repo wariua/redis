@@ -1471,7 +1471,8 @@ robj *createStringObjectFromLongLong(long long value);
 robj *createStringObjectFromLongDouble(long double value, int humanfriendly);
 robj *createQuicklistObject(void);
 robj *createZiplistObject(void);
-robj *createSetObject(void);
+#define createSetObject()   createSetObjectEx(0)
+robj *createSetObjectEx(unsigned long size);
 robj *createIntsetObject(void);
 robj *createHashObject(void);
 robj *createZsetObject(void);

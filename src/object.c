@@ -193,8 +193,8 @@ robj *createZiplistObject(void) {
     return o;
 }
 
-robj *createSetObject(void) {
-    dict *d = dictCreate(&setDictType,NULL);
+robj *createSetObjectEx(unsigned long size) {
+    dict *d = dictCreateEx(&setDictType,size,NULL);
     robj *o = createObject(OBJ_SET,d);
     o->encoding = OBJ_ENCODING_HT;
     return o;

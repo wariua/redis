@@ -148,7 +148,8 @@ typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 #define dictIsRehashing(d) ((d)->rehashidx != -1)
 
 /* API */
-dict *dictCreate(dictType *type, void *privDataPtr);
+#define dictCreate(type, privDataPtr)   dictCreateEx(type, 0, privDataPtr)
+dict *dictCreateEx(dictType *type, unsigned long size, void *privDataPtr);
 int dictExpand(dict *d, unsigned long size);
 int dictAdd(dict *d, void *key, void *val);
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
