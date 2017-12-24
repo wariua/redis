@@ -185,13 +185,13 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         robj *old = dictGetVal(de);
         int saved_lru = old->lru;
-        dictReplace(db->dict, key->ptr, val);
+        dictOverwrite(db->dict, de, val);
         val->lru = saved_lru;
         /* LFU should be not only copied but also updated
          * when a key is overwritten. */
         updateLFU(val);
     } else {
-        dictReplace(db->dict, key->ptr, val);
+        dictOverwrite(db->dict, de, val);
     }
 }
 

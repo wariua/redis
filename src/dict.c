@@ -327,7 +327,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
  * operation. */
 int dictReplace(dict *d, void *key, void *val)
 {
-    dictEntry *entry, *existing, auxentry;
+    dictEntry *entry, *existing;
 
     /* Try to add the element. If the key
      * does not exists dictAdd will suceed. */
@@ -337,15 +337,24 @@ int dictReplace(dict *d, void *key, void *val)
         return 1;
     }
 
+    dictOverwrite(d, existing, val);
+    return 0;
+}
+
+/* Overwrite:
+ * Discard the old value and assign the new value. */
+void dictOverwrite(dict *d, dictEntry *de, void *val)
+{
+    dictEntry old;
+
     /* Set the new value and free the old one. Note that it is important
      * to do that in this order, as the value may just be exactly the same
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
-    auxentry = *existing;
-    dictSetVal(d, existing, val);
-    dictFreeVal(d, &auxentry);
-    return 0;
+    old = *de;
+    dictSetVal(d, de, val);
+    dictFreeVal(d, &old);
 }
 
 /* Add or Find:
