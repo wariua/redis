@@ -64,7 +64,7 @@ static unsigned long dict_resize_limit = 0;
 
 /* -------------------------- private prototypes ---------------------------- */
 
-static int _dictExpandIfNeeded(dict *ht);
+static void _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
 static long _dictKeyIndex(dict *ht, const void *key, uint64_t hash, dictEntry **existing);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
@@ -315,6 +315,8 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 
     /* Set the hash entry fields. */
     dictSetKey(d, entry, key);
+
+    _dictExpandIfNeeded(d);
     return entry;
 }
 
@@ -915,13 +917,16 @@ unsigned long dictScan(dict *d,
 /* ------------------------- private functions ------------------------------ */
 
 /* Expand the hash table if needed */
-static int _dictExpandIfNeeded(dict *d)
+static void _dictExpandIfNeeded(dict *d)
 {
     /* Incremental rehashing already in progress. Return. */
-    if (dictIsRehashing(d)) return DICT_OK;
+    if (dictIsRehashing(d)) return;
 
     /* If the hash table is empty expand it to the initial size. */
-    if (d->ht[0].size == 0) return dictExpand(d, DICT_HT_INITIAL_SIZE);
+    if (d->ht[0].size == 0) {
+        dictExpand(d, DICT_HT_INITIAL_SIZE);
+        return;
+    }
 
     /* If we reached the 1:1 ratio, and we are allowed to resize the hash
      * table (global setting) or the table is small enough, we resize
@@ -929,9 +934,8 @@ static int _dictExpandIfNeeded(dict *d)
     if (d->ht[0].used >= d->ht[0].size &&
         (dict_resize_limit == 0 || d->ht[0].size < dict_resize_limit))
     {
-        return dictExpand(d, d->ht[0].used*2);
+        dictExpand(d, d->ht[0].used*2);
     }
-    return DICT_OK;
 }
 
 /* Our hash table capability is a power of two */
@@ -960,9 +964,6 @@ static long _dictKeyIndex(dict *d, const void *key, uint64_t hash, dictEntry **e
     dictEntry *he;
     if (existing) *existing = NULL;
 
-    /* Expand the hash table if needed */
-    if (_dictExpandIfNeeded(d) == DICT_ERR)
-        return -1;
     for (table = 0; table <= 1; table++) {
         idx = hash & d->ht[table].sizemask;
         /* Search if this slot does not already contain the given key */
