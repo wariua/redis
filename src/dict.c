@@ -922,12 +922,6 @@ static void _dictExpandIfNeeded(dict *d)
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return;
 
-    /* If the hash table is empty expand it to the initial size. */
-    if (d->ht[0].size == 0) {
-        dictExpand(d, DICT_HT_INITIAL_SIZE);
-        return;
-    }
-
     /* If we reached the 1:1 ratio, and we are allowed to resize the hash
      * table (global setting) or the table is small enough, we resize
      * doubling the number of buckets. */
