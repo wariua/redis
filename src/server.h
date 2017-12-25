@@ -1402,7 +1402,17 @@ void flushSlavesOutputBuffers(void);
 void disconnectSlaves(void);
 int listenToPort(int port, int *fds, int *count);
 void pauseClients(mstime_t duration);
-int clientsArePaused(void);
+void _clientsArePaused(void);
+/* Return non-zero if clients are currently paused. As a side effect the
+ * function checks if the pause time was reached and clear it. */
+static inline int clientsArePaused(void) {
+    if (server.clients_paused &&
+        server.clients_pause_end_time < server.mstime)
+    {
+        _clientsArePaused();
+    }
+    return server.clients_paused;
+}
 int processEventsWhileBlocked(void);
 int handleClientsWithPendingWrites(void);
 int clientHasPendingReplies(client *c);

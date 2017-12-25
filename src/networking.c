@@ -2005,30 +2005,24 @@ void pauseClients(mstime_t end) {
     server.clients_paused = 1;
 }
 
-/* Return non-zero if clients are currently paused. As a side effect the
- * function checks if the pause time was reached and clear it. */
-int clientsArePaused(void) {
-    if (server.clients_paused &&
-        server.clients_pause_end_time < server.mstime)
-    {
-        elNode *node;
-        client *c;
+/* Check if the pause time was reached and clear it. */
+void _clientsArePaused(void) {
+    elNode *node;
+    client *c;
 
-        server.clients_paused = 0;
+    server.clients_paused = 0;
 
-        /* Put all the clients in the unblocked clients queue in order to
-         * force the re-processing of the input buffer if any. */
-        elForEach(&server.clients,node) {
-            c = elNodeValue(node,el_all,client);
+    /* Put all the clients in the unblocked clients queue in order to
+     * force the re-processing of the input buffer if any. */
+    elForEach(&server.clients,node) {
+        c = elNodeValue(node,el_all,client);
 
-            /* Don't touch slaves and blocked clients. The latter pending
-             * requests be processed when unblocked. */
-            if (c->flags & (CLIENT_SLAVE|CLIENT_BLOCKED)) continue;
-            c->flags |= CLIENT_UNBLOCKED;
-            elAddNodeTail(&server.unblocked_clients,&c->el_unblocked);
-        }
+        /* Don't touch slaves and blocked clients. The latter pending
+         * requests be processed when unblocked. */
+        if (c->flags & (CLIENT_SLAVE|CLIENT_BLOCKED)) continue;
+        c->flags |= CLIENT_UNBLOCKED;
+        elAddNodeTail(&server.unblocked_clients,&c->el_unblocked);
     }
-    return server.clients_paused;
 }
 
 /* This function is called by Redis in order to process a few events from
