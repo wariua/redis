@@ -359,23 +359,6 @@ int selectDb(client *c, int id) {
 }
 
 /*-----------------------------------------------------------------------------
- * Hooks for key space changes.
- *
- * Every time a key in the database is modified the function
- * signalModifiedKey() is called.
- *
- * Every time a DB is flushed the function signalFlushDb() is called.
- *----------------------------------------------------------------------------*/
-
-void signalModifiedKey(redisDb *db, robj *key) {
-    touchWatchedKey(db,key);
-}
-
-void signalFlushedDb(int dbid) {
-    touchWatchedKeysOnFlush(dbid);
-}
-
-/*-----------------------------------------------------------------------------
  * Type agnostic commands operating on the key space
  *----------------------------------------------------------------------------*/
 

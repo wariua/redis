@@ -1793,8 +1793,18 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 long long emptyDb(int dbnum, int flags, void(callback)(void*));
 
 int selectDb(client *c, int id);
-void signalModifiedKey(redisDb *db, robj *key);
-void signalFlushedDb(int dbid);
+/*
+ * Every time a key in the database is modified the function
+ * signalModifiedKey() is called.
+ *
+ * Every time a DB is flushed the function signalFlushDb() is called.
+ */
+static inline void signalModifiedKey(redisDb *db, robj *key) {
+    touchWatchedKey(db,key);
+}
+static inline void signalFlushedDb(int dbid) {
+    touchWatchedKeysOnFlush(dbid);
+}
 unsigned int getKeysInSlot(unsigned int hashslot, robj **keys, unsigned int count);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int delKeysInSlot(unsigned int hashslot);
