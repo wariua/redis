@@ -1441,7 +1441,11 @@ void unwatchAllKeys(client *c);
 void initClientMultiState(client *c);
 void freeClientMultiState(client *c);
 void queueMultiCommand(client *c);
-void touchWatchedKey(redisDb *db, robj *key);
+void _touchWatchedKey(redisDb *db, robj *key);
+static inline void touchWatchedKey(redisDb *db, robj *key) {
+    if (dictSize(db->watched_keys) > 0)
+        _touchWatchedKey(db, key);
+}
 void touchWatchedKeysOnFlush(int dbid);
 void discardTransaction(client *c);
 void flagTransaction(client *c);

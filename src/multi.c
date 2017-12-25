@@ -273,12 +273,11 @@ void unwatchAllKeys(client *c) {
 
 /* "Touch" a key, so that if this key is being WATCHed by some client the
  * next EXEC will fail. */
-void touchWatchedKey(redisDb *db, robj *key) {
+void _touchWatchedKey(redisDb *db, robj *key) {
     list *clients;
     listIter li;
     listNode *ln;
 
-    if (dictSize(db->watched_keys) == 0) return;
     clients = dictFetchValue(db->watched_keys, key);
     if (!clients) return;
 
