@@ -170,8 +170,23 @@ void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
 unsigned int dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 void dictGetStats(char *buf, size_t bufsize, dict *d);
-uint64_t dictGenHashFunction(const void *key, int len);
-uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len);
+
+extern uint8_t dict_hash_function_seed[16];
+
+/* The default hashing function uses SipHash implementation
+ * in siphash.c. */
+
+uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
+uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
+
+static inline uint64_t dictGenHashFunction(const void *key, int len) {
+    return siphash(key,len,dict_hash_function_seed);
+}
+
+static inline uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
+    return siphash_nocase(buf,len,dict_hash_function_seed);
+}
+
 void dictEmpty(dict *d, void(callback)(void*));
 void dictEnableResize(void);
 void dictDisableResize(void);

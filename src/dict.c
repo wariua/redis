@@ -71,7 +71,7 @@ static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
 
 /* -------------------------- hash functions -------------------------------- */
 
-static uint8_t dict_hash_function_seed[16];
+uint8_t dict_hash_function_seed[16];
 
 void dictSetHashFunctionSeed(uint8_t *seed) {
     memcpy(dict_hash_function_seed,seed,sizeof(dict_hash_function_seed));
@@ -79,20 +79,6 @@ void dictSetHashFunctionSeed(uint8_t *seed) {
 
 uint8_t *dictGetHashFunctionSeed(void) {
     return dict_hash_function_seed;
-}
-
-/* The default hashing function uses SipHash implementation
- * in siphash.c. */
-
-uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
-uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
-
-uint64_t dictGenHashFunction(const void *key, int len) {
-    return siphash(key,len,dict_hash_function_seed);
-}
-
-uint64_t dictGenCaseHashFunction(const unsigned char *buf, int len) {
-    return siphash_nocase(buf,len,dict_hash_function_seed);
 }
 
 /* ----------------------------- API implementation ------------------------- */

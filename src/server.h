@@ -52,6 +52,7 @@
 typedef long long mstime_t; /* millisecond time type. */
 
 #include "ae.h"      /* Event driven programming library */
+#include "atomicvar.h"
 #include "sds.h"     /* Dynamic safe strings */
 #include "dict.h"    /* Hash tables */
 #include "adlist.h"  /* Linked lists */
@@ -1447,9 +1448,7 @@ void flagTransaction(client *c);
 void execCommandPropagateMulti(client *c);
 
 /* Redis object implementation */
-void decrRefCount(robj *o);
 void decrRefCountVoid(void *o);
-void incrRefCount(robj *o);
 robj *makeObjectShared(robj *o);
 robj *resetRefCount(robj *obj);
 void freeStringObject(robj *o);
@@ -1457,10 +1456,31 @@ void freeListObject(robj *o);
 void freeSetObject(robj *o);
 void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
+void freeModuleObject(robj *o);
+void freeStreamObject(robj *o);
 robj *createObject(int type, void *ptr);
-robj *createStringObject(const char *ptr, size_t len);
-robj *createRawStringObject(const char *ptr, size_t len);
 robj *createEmbeddedStringObject(const char *ptr, size_t len);
+
+/* Create a string object with encoding OBJ_ENCODING_RAW, that is a plain
+ * string object where o->ptr points to a proper sds string. */
+static inline robj *createRawStringObject(const char *ptr, size_t len) {
+    return createObject(OBJ_STRING, sdsnewlen(ptr,len));
+}
+
+/* Create a string object with EMBSTR encoding if it is smaller than
+ * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
+ * used.
+ *
+ * The current limit of 39 is chosen so that the biggest string object
+ * we allocate as EMBSTR will still fit into the 64 byte arena of jemalloc. */
+#define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
+static inline robj *createStringObject(const char *ptr, size_t len) {
+    if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
+        return createEmbeddedStringObject(ptr,len);
+    else
+        return createRawStringObject(ptr,len);
+}
+
 robj *dupStringObject(const robj *o);
 int isSdsRepresentableAsLongLong(sds s, long long *llval);
 int isObjectRepresentableAsLongLong(robj *o, long long *llongval);
@@ -1653,7 +1673,21 @@ void updateCachedTime(void);
 void resetServerStats(void);
 void activeDefragCycle(void);
 unsigned int getLRUClock(void);
-unsigned int LRU_CLOCK(void);
+
+/* This function is used to obtain the current LRU clock.
+ * If the current resolution is lower than the frequency we refresh the
+ * LRU clock (as it should be in production servers) we return the
+ * precomputed value, otherwise we need to resort to a system call. */
+static inline unsigned int LRU_CLOCK(void) {
+    unsigned int lruclock;
+    if (1000/server.hz <= LRU_CLOCK_RESOLUTION) {
+        atomicGet(server.lruclock,lruclock);
+    } else {
+        lruclock = getLRUClock();
+    }
+    return lruclock;
+}
+
 const char *evictPolicyToString(void);
 struct redisMemOverhead *getMemoryOverheadData(void);
 void freeMemoryOverheadData(struct redisMemOverhead *mh);
@@ -2055,4 +2089,26 @@ void xorDigest(unsigned char *digest, void *ptr, size_t len);
 #define redisDebugMark() \
     printf("-- MARK %s:%d --\n", __FILE__, __LINE__)
 
+static inline void incrRefCount(robj *o) {
+    if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
+}
+
+static inline void decrRefCount(robj *o) {
+    if (o->refcount == 1) {
+        switch(o->type) {
+        case OBJ_STRING: freeStringObject(o); break;
+        case OBJ_LIST: freeListObject(o); break;
+        case OBJ_SET: freeSetObject(o); break;
+        case OBJ_ZSET: freeZsetObject(o); break;
+        case OBJ_HASH: freeHashObject(o); break;
+        case OBJ_MODULE: freeModuleObject(o); break;
+        case OBJ_STREAM: freeStreamObject(o); break;
+        default: serverPanic("Unknown object type"); break;
+        }
+        zfree(o);
+    } else {
+        if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
+        if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;
+    }
+}
 #endif
