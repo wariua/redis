@@ -313,9 +313,7 @@ void _addReplyStringToList(client *c, const char *s, size_t len) {
  * The following functions are the ones that commands implementations will call.
  * -------------------------------------------------------------------------- */
 
-void addReply(client *c, robj *obj) {
-    if (prepareClientToWrite(c) != C_OK) return;
-
+static inline void _addReply(client *c, robj *obj) {
     /* This is an important place where we can avoid copy-on-write
      * when there is a saving child running, avoiding touching the
      * refcount field of the object if it's not needed.
@@ -349,18 +347,27 @@ void addReply(client *c, robj *obj) {
     }
 }
 
-void addReplySds(client *c, sds s) {
-    if (prepareClientToWrite(c) != C_OK) {
-        /* The caller expects the sds to be free'd. */
-        sdsfree(s);
-        return;
-    }
+void addReply(client *c, robj *obj) {
+    if (prepareClientToWrite(c) != C_OK) return;
+    _addReply(c, obj);
+}
+
+static inline void _addReplySds(client *c, sds s) {
     if (_addReplyToBuffer(c,s,sdslen(s)) == C_OK) {
         sdsfree(s);
     } else {
         /* This method free's the sds when it is no longer needed. */
         _addReplySdsToList(c,s);
     }
+}
+
+void addReplySds(client *c, sds s) {
+    if (prepareClientToWrite(c) != C_OK) {
+        /* The caller expects the sds to be free'd. */
+        sdsfree(s);
+        return;
+    }
+    _addReplySds(c, s);
 }
 
 /* This low level function just adds whatever protocol you send it to the
@@ -371,16 +378,20 @@ void addReplySds(client *c, sds s) {
  * if not needed. The object will only be created by calling
  * _addReplyStringToList() if we fail to extend the existing tail object
  * in the list of objects. */
-void addReplyString(client *c, const char *s, size_t len) {
-    if (prepareClientToWrite(c) != C_OK) return;
+static inline void _addReplyString(client *c, const char *s, size_t len) {
     if (_addReplyToBuffer(c,s,len) != C_OK)
         _addReplyStringToList(c,s,len);
 }
+void addReplyString(client *c, const char *s, size_t len) {
+    if (prepareClientToWrite(c) != C_OK) return;
+    _addReplyString(c, s, len);
+}
 
 void addReplyErrorLength(client *c, const char *s, size_t len) {
-    addReplyString(c,"-ERR ",5);
-    addReplyString(c,s,len);
-    addReplyString(c,"\r\n",2);
+    if (prepareClientToWrite(c) != C_OK) return;
+    _addReplyString(c,"-ERR ",5);
+    _addReplyString(c,s,len);
+    _addReplyString(c,"\r\n",2);
 }
 
 void addReplyError(client *c, const char *err) {
@@ -404,9 +415,10 @@ void addReplyErrorFormat(client *c, const char *fmt, ...) {
 }
 
 void addReplyStatusLength(client *c, const char *s, size_t len) {
-    addReplyString(c,"+",1);
-    addReplyString(c,s,len);
-    addReplyString(c,"\r\n",2);
+    if (prepareClientToWrite(c) != C_OK) return;
+    _addReplyString(c,"+",1);
+    _addReplyString(c,s,len);
+    _addReplyString(c,"\r\n",2);
 }
 
 void addReplyStatus(client *c, const char *status) {
@@ -553,22 +565,22 @@ void addReplyBulkLen(client *c, robj *obj) {
 /* Add a Redis Object as a bulk reply */
 void addReplyBulk(client *c, robj *obj) {
     addReplyBulkLen(c,obj);
-    addReply(c,obj);
-    addReply(c,shared.crlf);
+    _addReply(c,obj);
+    _addReply(c,shared.crlf);
 }
 
 /* Add a C buffer as bulk reply */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     addReplyLongLongWithPrefix(c,len,'$');
-    addReplyString(c,p,len);
-    addReply(c,shared.crlf);
+    _addReplyString(c,p,len);
+    _addReply(c,shared.crlf);
 }
 
 /* Add sds to reply (takes ownership of sds and frees it) */
 void addReplyBulkSds(client *c, sds s)  {
     addReplyLongLongWithPrefix(c,sdslen(s),'$');
-    addReplySds(c,s);
-    addReply(c,shared.crlf);
+    _addReplySds(c,s);
+    _addReply(c,shared.crlf);
 }
 
 /* Add a C null term string as bulk reply */
