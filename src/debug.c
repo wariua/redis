@@ -572,6 +572,8 @@ void _serverAssert(const char *estr, const char *file, int line) {
     serverLog(LL_WARNING,"(forcing SIGSEGV to print the bug report.)");
 #endif
     *((char*)-1) = 'x';
+
+    _exit(1);
 }
 
 void _serverAssertPrintClientInfo(const client *c) {
@@ -650,6 +652,8 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
 #endif
     serverLog(LL_WARNING,"------------------------------------------------");
     *((char*)-1) = 'x';
+
+    _exit(1);
 }
 
 void bugReportStart(void) {
