@@ -1465,7 +1465,13 @@ void execCommandPropagateMulti(client *c);
 void decrRefCountVoid(void *o);
 robj *makeObjectShared(robj *o);
 robj *resetRefCount(robj *obj);
-void freeStringObject(robj *o);
+
+static inline void freeStringObject(robj *o) {
+    if (o->encoding == OBJ_ENCODING_RAW) {
+        sdsfree(o->ptr);
+    }
+}
+
 void freeListObject(robj *o);
 void freeSetObject(robj *o);
 void freeZsetObject(robj *o);

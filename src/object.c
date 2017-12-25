@@ -226,12 +226,6 @@ robj *createModuleObject(moduleType *mt, void *value) {
     return createObject(OBJ_MODULE,mv);
 }
 
-void freeStringObject(robj *o) {
-    if (o->encoding == OBJ_ENCODING_RAW) {
-        sdsfree(o->ptr);
-    }
-}
-
 void freeListObject(robj *o) {
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistRelease(o->ptr);
