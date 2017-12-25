@@ -1478,6 +1478,7 @@ void freeZsetObject(robj *o);
 void freeHashObject(robj *o);
 void freeModuleObject(robj *o);
 void freeStreamObject(robj *o);
+void _freeObject(robj *o);
 robj *createObject(int type, void *ptr);
 robj *createEmbeddedStringObject(const char *ptr, size_t len);
 
@@ -2139,7 +2140,7 @@ static inline void decrRefCount(robj *o) {
         case OBJ_STREAM: freeStreamObject(o); break;
         default: serverPanic("Unknown object type"); break;
         }
-        zfree(o);
+        _freeObject(o);
     } else {
         if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
         if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount--;

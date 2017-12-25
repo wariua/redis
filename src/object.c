@@ -38,8 +38,20 @@
 
 /* ===================== Creation and parsing of objects ==================== */
 
+static robj *obj_pool = NULL;
+static int obj_pool_len = 0;
+
 robj *createObject(int type, void *ptr) {
-    robj *o = zmalloc(sizeof(*o));
+    robj *o;
+
+    if (obj_pool_len) {
+        o = obj_pool;
+        obj_pool = o->ptr;
+        obj_pool_len--;
+    } else {
+        o = zmalloc(sizeof(*o));
+    }
+
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
@@ -53,6 +65,17 @@ robj *createObject(int type, void *ptr) {
         o->lru = LRU_CLOCK();
     }
     return o;
+}
+
+void _freeObject(robj *o)
+{
+    if (obj_pool_len < 100) {
+        o->ptr = obj_pool;
+        obj_pool = o;
+        obj_pool_len++;
+    } else {
+        zfree(o);
+    }
 }
 
 /* Set a special refcount in the object to make it "shared":
