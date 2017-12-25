@@ -94,14 +94,11 @@ sds keyspaceEventsFlagsToString(int flags) {
  * 'event' is a C string representing the event name.
  * 'key' is a Redis object representing the key name.
  * 'dbid' is the database ID where the key lives.  */
-void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
+void _notifyKeyspaceEvent(char *event, robj *key, int dbid) {
     sds chan;
     robj *chanobj, *eventobj;
     int len = -1;
     char buf[24];
-
-    /* If notifications for this class of events are off, return ASAP. */
-    if (!(server.notify_keyspace_events & type)) return;
 
     eventobj = createStringObject(event,strlen(event));
 

@@ -1744,7 +1744,11 @@ int listMatchPubsubPattern(void *a, void *b);
 int pubsubPublishMessage(robj *channel, robj *message);
 
 /* Keyspace events notification */
-void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
+void _notifyKeyspaceEvent(char *event, robj *key, int dbid);
+static inline void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
+    if (server.notify_keyspace_events & type)
+        _notifyKeyspaceEvent(event, key, dbid);
+}
 int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
