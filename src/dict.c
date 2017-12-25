@@ -492,13 +492,6 @@ dictEntry *dictFind(dict *d, const void *key)
     return NULL;
 }
 
-void *dictFetchValue(dict *d, const void *key) {
-    dictEntry *he;
-
-    he = dictFind(d,key);
-    return he ? dictGetVal(he) : NULL;
-}
-
 /* A fingerprint is a 64 bit number that represents the state of the dictionary
  * at a given time, it's just a few dict properties xored together.
  * When an unsafe iterator is initialized, we get the dict fingerprint, and check

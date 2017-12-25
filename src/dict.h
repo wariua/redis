@@ -161,7 +161,14 @@ dictEntry *dictUnlink(dict *ht, const void *key);
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he);
 void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
-void *dictFetchValue(dict *d, const void *key);
+
+static inline void *dictFetchValue(dict *d, const void *key) {
+    dictEntry *he;
+
+    he = dictFind(d,key);
+    return he ? dictGetVal(he) : NULL;
+}
+
 int dictResize(dict *d);
 dictIterator *dictGetIterator(dict *d);
 dictIterator *dictGetSafeIterator(dict *d);
