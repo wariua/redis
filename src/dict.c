@@ -967,6 +967,7 @@ void dictEmpty(dict *d, void(callback)(void*)) {
     _dictClear(d,&d->ht[1],callback);
     d->rehashidx = -1;
     d->iterators = 0;
+    dictExpand(d, DICT_HT_INITIAL_SIZE);
 }
 
 void dictEnableResize(void) {
